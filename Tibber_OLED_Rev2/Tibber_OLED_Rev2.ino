@@ -17,7 +17,7 @@ static const uint32_t RETRY_MAX_MS = 120UL * 60UL * 1000UL;
 float prices[2][24] = {};
 bool present[2][24] = {};
 int dayKey[2] = {-1, -1};  // local YYYY*1000 + day-of-year
-int currentSlot = 0;
+int observedDay = -1; // track rollover separately, even if fetching fails
 bool showInfo = false;
 unsigned long displayTimer = 0;
 unsigned long lastTry = 0;
@@ -55,6 +55,8 @@ bool usable(int slot) {
 }
 void rollDays(const tm &now) {
   int today = keyOf(now);
+  if (observedDay == today) return; // do not reset retry timer on every loop
+  observedDay = today;
   if (dayKey[0] == today) return;
   if (dayKey[1] == today) {
     memcpy(prices[0], prices[1], sizeof(prices[0]));
