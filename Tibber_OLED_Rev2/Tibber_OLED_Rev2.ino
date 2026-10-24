@@ -21,7 +21,8 @@ int currentSlot = 0;
 bool showInfo = false;
 unsigned long displayTimer = 0;
 unsigned long lastTry = 0;
-uint32_t retryDelay = RETRY_FIRST_MS;
+uint32_t retryDelay = 0; // first startup fetch should be immediate
+uint32_t nextBackoff = RETRY_FIRST_MS;
 bool retryMode = true;
 char message[24] = "Starting...";
 
@@ -66,6 +67,8 @@ void rollDays(const tm &now) {
   memset(present[1], 0, sizeof(present[1]));
   dayKey[1] = -1;
   retryMode = !usable(0);
+  retryDelay = 0; // fetch missing new-day data without waiting
+  nextBackoff = RETRY_FIRST_MS;
 }
 bool needsFetch(const tm &now) {
   if (!usable(0)) return true;
@@ -91,6 +94,8 @@ bool fetchTibber(const tm &now) {
   client.setTrustAnchors(&ca);
   client.setTimeout(15000);
   HTTPClient http;
+  // Avoid HTTP/1.1 chunked transfer, which cannot be parsed directly from getStream().
+  http.useHTTP10(true);
   http.setTimeout(15000);
   if (!http.begin(client, API)) { setMessage("TLS init failed"); return false; }
   http.addHeader("Authorization", String("Bearer ") + TIBBER_TOKEN);
@@ -207,17 +212,22 @@ void loop() {
   if (getClock(now)) {
     rollDays(now);
     if (needsFetch(now)) {
-      uint32_t interval = retryMode ? retryDelay : 0;
-      if (!retryMode || (uint32_t)(millis()-lastTry) >= interval) {
+      if (!retryMode || retryDelay == 0 || (uint32_t)(millis()-lastTry) >= retryDelay) {
         lastTry=millis();
         bool ok=fetchTibber(now);
         retryMode=!ok;
-        if (!ok) retryDelay=min(retryDelay*2UL,RETRY_MAX_MS);
-        else retryDelay=RETRY_FIRST_MS;
+        if (!ok) {
+          retryDelay=nextBackoff; // retry after 10, then 20, 40, 80, 120 min
+          nextBackoff=min(nextBackoff*2UL,RETRY_MAX_MS);
+        } else {
+          retryDelay=0;
+          nextBackoff=RETRY_FIRST_MS;
+        }
       }
     } else {
       retryMode=false;
-      retryDelay=RETRY_FIRST_MS;
+      retryDelay=0;
+      nextBackoff=RETRY_FIRST_MS;
     }
   }
   if ((uint32_t)(millis()-displayTimer) >= 12000UL) {
