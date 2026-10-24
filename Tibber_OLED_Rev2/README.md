@@ -19,9 +19,9 @@ ESP8266 (Wemos D1 Mini / NodeMCU), I2C SH1106 128x64. ESP8266 Arduino core, **Ar
 ## Optimized API schedule (still Rev.2.0)
 
 - At initial startup, **if today's valid prices are missing**, fetch today's data and any available tomorrow prices.
-- Normally **one scheduled request per day from 16:00 local time**: fetch `today` **and** `tomorrow` in a single HTTPS POST. Once tomorrow data is cached, do not request again that day.
+- Normally **one scheduled request per day between 16:00 and 16:30 local time** (per-device/day stagger): fetch `today` **and** `tomorrow` in a single HTTPS POST. Once tomorrow data is cached, do not request again that day.
 - At midnight, **switch the cached tomorrow values to today without HTTP**.
-- If no valid current-day data or afternoon tomorrow data is absent, retry with exponential backoff: 10, 20, 40, 80, max 120 minutes. No polling while both relevant data sets are available.
+- If no valid current-day data or afternoon tomorrow data is absent, retry with exponential backoff plus random jitter: approximately 10, 20, 40, 80, max 120 minutes. No polling while both relevant data sets are available.
 - Data is RAM-only; a restart or power failure requires fresh download. Cached prices from the same day are preserved through transient API failures.
 - `today` must contain at least 23 distinct clock-hour values. A transient missing `tomorrow` results in retry scheduling.
 - API response contains hourly `startsAt`, `total`, `energy`. Price display uses **ct/kWh**: GROSS=total*100, NET=total/(1+VAT_RATE)*100 (VAT removal approximation), ENERGY=energy*100 (not equivalent to the net retail price).
