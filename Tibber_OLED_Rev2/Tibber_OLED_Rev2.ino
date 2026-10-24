@@ -72,8 +72,11 @@ void rollDays(const tm &now) {
 }
 bool needsFetch(const tm &now) {
   if (!usable(0)) return true;
-  // At 16:00 local, refresh both days once, provided tomorrow not cached.
-  if (now.tm_hour >= 16 && dayKey[1] != nextDayKey(now)) return true;
+  // Stagger the daily request across 16:00-16:30 local (changes per day/device).
+  uint32_t seed = ESP.getChipId() ^ ((uint32_t)now.tm_yday * 2654435761UL);
+  int offsetMin = seed % 31;
+  bool afternoon = now.tm_hour > 16 || (now.tm_hour == 16 && now.tm_min >= offsetMin);
+  if (afternoon && dayKey[1] != nextDayKey(now)) return true;
   return false;
 }
 bool fetchTibber(const tm &now) {
@@ -205,6 +208,7 @@ void setup() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   configTime(TIMEZONE, "pool.ntp.org", "time.cloudflare.com");
+  randomSeed(micros() ^ ESP.getChipId());
   setMessage("WiFi / NTP...");
 }
 void loop() {
@@ -217,8 +221,12 @@ void loop() {
         bool ok=fetchTibber(now);
         retryMode=!ok;
         if (!ok) {
-          retryDelay=nextBackoff; // retry after 10, then 20, 40, 80, 120 min
-          nextBackoff=min(nextBackoff*2UL,RETRY_MAX_MS);
+          // Tibber requires exponential backoff with jitter, capped at 120 min.
+          uint32_t jitter = (uint32_t)random(0L, (long)(nextBackoff/5UL + 1UL));
+          retryDelay = nextBackoff + jitter;
+          if (retryDelay > RETRY_MAX_MS) retryDelay = RETRY_MAX_MS;
+          if (nextBackoff < RETRY_MAX_MS / 2UL) nextBackoff *= 2UL;
+          else nextBackoff = RETRY_MAX_MS;
         } else {
           retryDelay=0;
           nextBackoff=RETRY_FIRST_MS;
